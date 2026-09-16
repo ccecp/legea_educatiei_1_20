@@ -33,14 +33,18 @@
   }
   function sortedQuestion(prompt,options,correctText,source){const unique=[...new Set(options)].slice(0,4).sort((x,y)=>x.localeCompare(y,"ro",{sensitivity:"base"}));return{prompt,options:unique,correct:unique.indexOf(correctText),source};}
   function quizFor(a){
-    const own=excerpts(a),base=own[0],altered=mutations(base);
-    const words=base.match(/[A-Za-zĂÂÎȘȚăâîșț-]{5,}/g)||[],answer=words[Math.min(words.length-1,Math.max(0,Math.floor(words.length*.58)))]||"educație",blank=base.replace(answer,"__________"),pool=[answer];
-    for(const offset of [11,23,41,67,97]){const other=DATA.articles[(DATA.articles.indexOf(a)+offset)%DATA.articles.length],candidate=(excerpts(other)[0].match(/[A-Za-zĂÂÎȘȚăâîșț-]{5,}/g)||[]).find(w=>!pool.includes(w));if(candidate)pool.push(candidate);if(pool.length===4)break;}
-    const q1=sortedQuestion(`Completați corect, potrivit art. ${a.article}: „${blank}”`,pool,answer,base);
-    const q2=sortedQuestion(`Potrivit art. ${a.article}, care variantă reproduce corect condiția, competența sau termenul legal?`,[base,...altered],base,base);
-    const exacts=own.slice(0,3),wrong=mutations(exacts[exacts.length-1])[0];
-    const q3=sortedQuestion(`Care dintre următoarele formulări NU corespunde art. ${a.article}?`,[...exacts,wrong],wrong,exacts[exacts.length-1]);
-    return[q1,q2,q3];
+    const own=excerpts(a),first=own[0],second=own[1]||first,third=own[2]||second;
+    const falseSecond=mutations(second)[0],falseThird=mutations(third)[1]||mutations(third)[0];
+    const statements=`I. ${first}\nII. ${falseSecond}\nIII. ${third}`;
+    const comboOptions=["Afirmațiile I și II","Afirmațiile I și III","Afirmațiile II și III","Toate cele trei afirmații"];
+    const q1=sortedQuestion(`Analizați afirmațiile următoare prin raportare la art. ${a.article}:\n${statements}\nCare combinație este corectă?`,comboOptions,"Afirmațiile I și III",`I și III reproduc textul art. ${a.article}; afirmația II modifică o condiție legală.`);
+    const scenarioLead=["În cadrul unei ședințe a consiliului de administrație,","La verificarea legalității unei decizii manageriale,","În soluționarea unei situații-problemă din unitatea de învățământ,"][a.articleNumber%3];
+    const q2=sortedQuestion(`${scenarioLead} directorul invocă art. ${a.article}. Care dintre următoarele soluții respectă întocmai prevederea legală?`,[first,...mutations(first)],first,first);
+    const assertion=`AFIRMAȚIE: ${second}`;
+    const reason=`MOTIVARE: ${falseThird}`;
+    const arOptions=["Afirmația este adevărată, iar motivarea este falsă","Afirmația este falsă, iar motivarea este adevărată","Afirmația și motivarea sunt adevărate, iar motivarea explică afirmația","Afirmația și motivarea sunt adevărate, dar motivarea nu explică afirmația"];
+    const q3=sortedQuestion(`Raportându-vă la art. ${a.article}, analizați enunțurile:\n${assertion}\n${reason}`,arOptions,"Afirmația este adevărată, iar motivarea este falsă",`Afirmația reproduce prevederea legală. Motivarea schimbă un element al textului art. ${a.article}.`);
+    return [q1,q2,q3];
   }
   function quizHTML(a){return `<details class="article-quiz"><summary>Antrenament pentru concurs: 3 itemi</summary><div class="quiz-list">${quizFor(a).map((q,qi)=>`<fieldset class="quiz-item" data-quiz="${a.article}-${qi}" data-correct="${q.correct}" data-source="${esc(q.source)}"><legend>${qi+1}. ${esc(q.prompt)}</legend>${q.options.map((o,oi)=>`<button type="button" class="answer-option" data-answer="${oi}"><span>${"abcd"[oi]})</span> ${esc(o)}</button>`).join("")}<div class="answer-feedback" aria-live="polite"></div></fieldset>`).join("")}</div></details>`;}
   function card(a, open=false){ const m=modFor(a.articleNumber); return `<details class="article-card" data-article="${a.article}" ${open?"open":""}><summary><span>Articolul ${esc(a.article)}</span><small>${esc(m?.title||"")}</small></summary><div class="article-body"><div class="audio-actions"><button class="primary" data-play="${a.article}">▶ Ascultă articolul</button><button class="secondary" data-stop="${a.article}" hidden>■ Oprește</button>${voiceOptions()}<button class="secondary" data-copy="${a.article}">Copiază textul</button></div><div class="legal-text">${paras(a.legalText)}</div>${quizHTML(a)}</div></details>`; }
