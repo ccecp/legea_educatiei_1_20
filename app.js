@@ -1,6 +1,7 @@
 "use strict";
 (() => {
   const DATA = window.LEGE_DATA;
+  DATA.articles = window.LEGE_ARTICLES;
   const main = document.getElementById("main");
   const toast = document.getElementById("toast");
   let view = "home";

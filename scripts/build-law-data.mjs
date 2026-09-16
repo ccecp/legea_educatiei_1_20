@@ -86,9 +86,18 @@ const payload = {
   source: "Legea nr. 198/2023 a învățământului preuniversitar",
   sourceVersion: "text consolidat din documentul furnizat, generat la 15.09.2026",
   documentNotice: "Conținut reprodus din documentul PDF furnizat. Pentru aplicare juridică, verificați și Monitorul Oficial/Portalul Legislativ.",
-  modules,
-  articles
+  modules
 };
 
-fs.writeFileSync(outputPath, `window.LEGE_DATA = ${JSON.stringify(payload, null, 2)};\n`, "utf8");
-console.log(`data.js generat: ${articles.length} articole/dispoziții.`);
+fs.writeFileSync(outputPath, `window.LEGE_DATA = ${JSON.stringify(payload, null, 2)};\nwindow.LEGE_ARTICLES = [];\n`, "utf8");
+for (const module of modules) {
+  const moduleArticles = articles.filter((article) =>
+    article.articleNumber >= module.startArticle && article.articleNumber <= module.endArticle
+  );
+  fs.writeFileSync(
+    new URL(`../module${module.id}.js`, import.meta.url),
+    `window.LEGE_ARTICLES.push(...${JSON.stringify(moduleArticles)});\n`,
+    "utf8"
+  );
+}
+console.log(`Fișiere generate: ${articles.length} articole/dispoziții în 20 de module.`);
