@@ -17,12 +17,44 @@
   function romanianVoices(){ return speechSynthesis.getVoices().filter(v=>v.lang.toLowerCase().startsWith("ro")); }
   function friendlyVoice(){ const voices=romanianVoices(),wanted=["ioana","alina","cristina","female","natural"]; return voices.find(v=>v.name===selectedVoice)||voices.find(v=>wanted.some(n=>v.name.toLowerCase().includes(n)))||voices[0]||null; }
   function voiceOptions(){ const voices=romanianVoices(); return voices.length?`<label class="voice-choice">Voce <select data-voice-select>${voices.map(v=>`<option value="${esc(v.name)}" ${v.name===(selectedVoice||friendlyVoice()?.name)?"selected":""}>${esc(v.name)}</option>`).join("")}</select></label>`:""; }
-  function card(a, open=false){ const m=modFor(a.articleNumber); return `<details class="article-card" data-article="${a.article}" ${open?"open":""}><summary><span>Articolul ${esc(a.article)}</span><small>${esc(m?.title||"")}</small></summary><div class="article-body"><div class="audio-actions"><button class="primary" data-play="${a.article}">▶ Ascultă articolul</button><button class="secondary" data-stop="${a.article}" hidden>■ Oprește</button>${voiceOptions()}<button class="secondary" data-copy="${a.article}">Copiază textul</button></div><div class="legal-text">${paras(a.legalText)}</div></div></details>`; }
+  function excerpts(a){
+    const parts=a.legalText.replace(/\s+/g," ").split(/(?<=[.;!?])\s+(?=(?:\([0-9]+\)|[a-zșț]\)|[A-ZĂÂÎȘȚ]))/).map(x=>x.replace(/^\([0-9]+\)\s*/,"").trim()).filter(x=>x.length>=45);
+    if(parts.length>=3)return parts.slice(0,3).map(x=>x.length>240?x.slice(0,237)+"...":x);
+    const text=a.legalText.replace(/\s+/g," ").trim(),size=Math.ceil(text.length/3);
+    return [0,1,2].map(i=>text.slice(i*size,(i+1)*size).trim()).filter(Boolean).map(x=>x.length>240?x.slice(0,237)+"...":x);
+  }
+  function quizFor(a){
+    const own=excerpts(a);
+    return [0,1,2].map(q=>{
+      const correct=own[q%own.length];
+      const candidates=[correct];
+      for(const offset of [7,19,37,61,89]){
+        const other=DATA.articles[(DATA.articles.indexOf(a)+offset+q*11)%DATA.articles.length];
+        const choice=excerpts(other)[q%excerpts(other).length];
+        if(choice&&!candidates.includes(choice))candidates.push(choice);
+        if(candidates.length===4)break;
+      }
+      const options=candidates.slice(0,4).sort((x,y)=>x.localeCompare(y,"ro",{sensitivity:"base"}));
+      return {prompt:`Care fragment este preluat din articolul ${a.article}?`,options,correct:options.indexOf(correct)};
+    });
+  }
+  function quizHTML(a){return `<details class="article-quiz"><summary>Verifică-te: 3 itemi</summary><div class="quiz-list">${quizFor(a).map((q,qi)=>`<fieldset class="quiz-item" data-quiz="${a.article}-${qi}" data-correct="${q.correct}"><legend>${qi+1}. ${esc(q.prompt)}</legend>${q.options.map((o,oi)=>`<button type="button" class="answer-option" data-answer="${oi}"><span>${"abcd"[oi]})</span> ${esc(o)}</button>`).join("")}<div class="answer-feedback" aria-live="polite"></div></fieldset>`).join("")}</div></details>`;}
+  function card(a, open=false){ const m=modFor(a.articleNumber); return `<details class="article-card" data-article="${a.article}" ${open?"open":""}><summary><span>Articolul ${esc(a.article)}</span><small>${esc(m?.title||"")}</small></summary><div class="article-body"><div class="audio-actions"><button class="primary" data-play="${a.article}">▶ Ascultă articolul</button><button class="secondary" data-stop="${a.article}" hidden>■ Oprește</button>${voiceOptions()}<button class="secondary" data-copy="${a.article}">Copiază textul</button></div><div class="legal-text">${paras(a.legalText)}</div>${quizHTML(a)}</div></details>`; }
   function bindCards(){
     document.querySelectorAll("[data-voice-select]").forEach(s=>s.onchange=()=>{selectedVoice=s.value;localStorage.setItem("lege198-voice",selectedVoice);document.querySelectorAll("[data-voice-select]").forEach(x=>x.value=selectedVoice);stop();toastMsg("Vocea a fost schimbată.");});
     document.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{ const a=DATA.articles.find(x=>x.article===b.dataset.play); if(!("speechSynthesis" in window)){toastMsg("Redarea audio nu este disponibilă.");return;} stop(); const u=new SpeechSynthesisUtterance(`Articolul ${a.article}. ${a.legalText}`); u.lang="ro-RO";u.rate=.88;u.pitch=1.04;u.voice=friendlyVoice();u.onend=stop;u.onerror=stop;speechSynthesis.speak(u);b.hidden=true;document.querySelector(`[data-stop="${a.article}"]`).hidden=false;});
     document.querySelectorAll("[data-stop]").forEach(b=>b.onclick=stop);
     document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{const a=DATA.articles.find(x=>x.article===b.dataset.copy);await navigator.clipboard.writeText(`Articolul ${a.article}\n${a.legalText}`);toastMsg("Textul articolului a fost copiat.");});
+    document.querySelectorAll(".quiz-item").forEach(item=>item.querySelectorAll("[data-answer]").forEach(button=>button.onclick=()=>{
+      if(item.dataset.done)return;
+      item.dataset.done="1";
+      const chosen=Number(button.dataset.answer),correct=Number(item.dataset.correct),buttons=[...item.querySelectorAll("[data-answer]")];
+      buttons.forEach((b,i)=>{b.disabled=true;if(i===correct)b.classList.add("correct");});
+      if(chosen!==correct)button.classList.add("wrong");
+      const feedback=item.querySelector(".answer-feedback"),letter="abcd"[correct];
+      feedback.className=`answer-feedback ${chosen===correct?"success":"retry"}`;
+      feedback.innerHTML=chosen===correct?`Corect! Răspunsul este <strong>${letter})</strong>.`:`Nu este corect. Răspunsul corect este <strong>${letter})</strong>.`;
+    }));
   }
   function home(){
     view="home";stop();main.innerHTML=`<section class="hero"><p class="eyebrow">FORMA DIN DOCUMENTUL FURNIZAT</p><h1>Legea nr. 198/2023<br><span>a învățământului preuniversitar</span></h1><p class="lead">Text integral extras din documentul consolidat, cu articolele 1-251 și articolul 108¹. Căutați orice termen, număr de articol sau expresie.</p><div class="search-wrap"><label for="lawSearch">Căutare în lege</label><div class="search-row"><input id="lawSearch" type="search" placeholder="Ex.: director, norma didactică, art. 207"><button id="searchButton" class="primary">Caută</button></div></div><p class="source-note">${esc(DATA.documentNotice)}</p></section><section class="quick-grid"><button class="quick-card" data-go="contents"><strong>20 de module</strong><span>Deschide cuprinsul complet</span></button><button class="quick-card" data-open="1"><strong>Articolul 1</strong><span>Începe lectura legii</span></button><button class="quick-card" data-open="207"><strong>Articolul 207</strong><span>Norma didactică</span></button></section><section id="results" class="results" aria-live="polite"></section>`;
