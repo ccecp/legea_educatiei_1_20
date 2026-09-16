@@ -23,22 +23,26 @@
     const text=a.legalText.replace(/\s+/g," ").trim(),size=Math.ceil(text.length/3);
     return [0,1,2].map(i=>text.slice(i*size,(i+1)*size).trim()).filter(Boolean).map(x=>x.length>240?x.slice(0,237)+"...":x);
   }
-  function quizFor(a){
-    const own=excerpts(a);
-    return [0,1,2].map(q=>{
-      const correct=own[q%own.length];
-      const candidates=[correct];
-      for(const offset of [7,19,37,61,89]){
-        const other=DATA.articles[(DATA.articles.indexOf(a)+offset+q*11)%DATA.articles.length];
-        const choice=excerpts(other)[q%excerpts(other).length];
-        if(choice&&!candidates.includes(choice))candidates.push(choice);
-        if(candidates.length===4)break;
-      }
-      const options=candidates.slice(0,4).sort((x,y)=>x.localeCompare(y,"ro",{sensitivity:"base"}));
-      return {prompt:`Care fragment este preluat din articolul ${a.article}?`,options,correct:options.indexOf(correct)};
-    });
+  function mutations(text){
+    const swaps=[["Ministerul Educației","autoritățile administrației publice locale"],["ministrului educației","directorului unității de învățământ"],["consiliului de administrație","consiliului profesoral"],["consiliul de administrație","consiliul profesoral"],["hotărâre a Guvernului","ordin al ministrului educației"],["ordin al ministrului educației","hotărâre a Guvernului"],["majoritatea","unanimitatea"],["obligatoriu","facultativ"],["gratuit","contra cost"],["poate","trebuie să"],["pot","trebuie să"],["se aprobă","se avizează"],["se avizează","se aprobă"],["județene","naționale"],["național","județean"]];
+    const result=[];for(const [from,to] of swaps)if(text.includes(from)){const v=text.replace(from,to);if(v!==text&&!result.includes(v))result.push(v);}
+    const number=text.match(/\b(\d+)\b/);if(number){const n=Number(number[1]);for(const d of [1,2,-1]){const v=text.replace(number[0],String(Math.max(1,n+d)));if(v!==text&&!result.includes(v))result.push(v);}}
+    if(/\bse\s+[a-zăâîșț]+/i.test(text))result.push(text.replace(/\bse\s+/i,"nu se "));if(/\beste\b/i.test(text))result.push(text.replace(/\beste\b/i,"nu este"));if(/\bsunt\b/i.test(text))result.push(text.replace(/\bsunt\b/i,"nu sunt"));
+    const fallbacks=[`${text} Numai cu aprobarea prealabilă a Ministerului Educației.`,`${text} Prevederea se aplică exclusiv unităților de învățământ particular.`,`${text} Aplicarea este facultativă.`];
+    for(const v of fallbacks)if(result.length<3&&!result.includes(v))result.push(v);return result.slice(0,3);
   }
-  function quizHTML(a){return `<details class="article-quiz"><summary>Verifică-te: 3 itemi</summary><div class="quiz-list">${quizFor(a).map((q,qi)=>`<fieldset class="quiz-item" data-quiz="${a.article}-${qi}" data-correct="${q.correct}"><legend>${qi+1}. ${esc(q.prompt)}</legend>${q.options.map((o,oi)=>`<button type="button" class="answer-option" data-answer="${oi}"><span>${"abcd"[oi]})</span> ${esc(o)}</button>`).join("")}<div class="answer-feedback" aria-live="polite"></div></fieldset>`).join("")}</div></details>`;}
+  function sortedQuestion(prompt,options,correctText,source){const unique=[...new Set(options)].slice(0,4).sort((x,y)=>x.localeCompare(y,"ro",{sensitivity:"base"}));return{prompt,options:unique,correct:unique.indexOf(correctText),source};}
+  function quizFor(a){
+    const own=excerpts(a),base=own[0],altered=mutations(base);
+    const words=base.match(/[A-Za-zĂÂÎȘȚăâîșț-]{5,}/g)||[],answer=words[Math.min(words.length-1,Math.max(0,Math.floor(words.length*.58)))]||"educație",blank=base.replace(answer,"__________"),pool=[answer];
+    for(const offset of [11,23,41,67,97]){const other=DATA.articles[(DATA.articles.indexOf(a)+offset)%DATA.articles.length],candidate=(excerpts(other)[0].match(/[A-Za-zĂÂÎȘȚăâîșț-]{5,}/g)||[]).find(w=>!pool.includes(w));if(candidate)pool.push(candidate);if(pool.length===4)break;}
+    const q1=sortedQuestion(`Completați corect, potrivit art. ${a.article}: „${blank}”`,pool,answer,base);
+    const q2=sortedQuestion(`Potrivit art. ${a.article}, care variantă reproduce corect condiția, competența sau termenul legal?`,[base,...altered],base,base);
+    const exacts=own.slice(0,3),wrong=mutations(exacts[exacts.length-1])[0];
+    const q3=sortedQuestion(`Care dintre următoarele formulări NU corespunde art. ${a.article}?`,[...exacts,wrong],wrong,exacts[exacts.length-1]);
+    return[q1,q2,q3];
+  }
+  function quizHTML(a){return `<details class="article-quiz"><summary>Antrenament pentru concurs: 3 itemi</summary><div class="quiz-list">${quizFor(a).map((q,qi)=>`<fieldset class="quiz-item" data-quiz="${a.article}-${qi}" data-correct="${q.correct}" data-source="${esc(q.source)}"><legend>${qi+1}. ${esc(q.prompt)}</legend>${q.options.map((o,oi)=>`<button type="button" class="answer-option" data-answer="${oi}"><span>${"abcd"[oi]})</span> ${esc(o)}</button>`).join("")}<div class="answer-feedback" aria-live="polite"></div></fieldset>`).join("")}</div></details>`;}
   function card(a, open=false){ const m=modFor(a.articleNumber); return `<details class="article-card" data-article="${a.article}" ${open?"open":""}><summary><span>Articolul ${esc(a.article)}</span><small>${esc(m?.title||"")}</small></summary><div class="article-body"><div class="audio-actions"><button class="primary" data-play="${a.article}">▶ Ascultă articolul</button><button class="secondary" data-stop="${a.article}" hidden>■ Oprește</button>${voiceOptions()}<button class="secondary" data-copy="${a.article}">Copiază textul</button></div><div class="legal-text">${paras(a.legalText)}</div>${quizHTML(a)}</div></details>`; }
   function bindCards(){
     document.querySelectorAll("[data-voice-select]").forEach(s=>s.onchange=()=>{selectedVoice=s.value;localStorage.setItem("lege198-voice",selectedVoice);document.querySelectorAll("[data-voice-select]").forEach(x=>x.value=selectedVoice);stop();toastMsg("Vocea a fost schimbată.");});
@@ -53,7 +57,7 @@
       if(chosen!==correct)button.classList.add("wrong");
       const feedback=item.querySelector(".answer-feedback"),letter="abcd"[correct];
       feedback.className=`answer-feedback ${chosen===correct?"success":"retry"}`;
-      feedback.innerHTML=chosen===correct?`Corect! Răspunsul este <strong>${letter})</strong>.`:`Nu este corect. Răspunsul corect este <strong>${letter})</strong>.`;
+      feedback.innerHTML=(chosen===correct?`Corect! Răspunsul este <strong>${letter})</strong>.`:`Nu este corect. Răspunsul corect este <strong>${letter})</strong>.`)+`<small>Formularea din lege: ${esc(item.dataset.source)}</small>`;
     }));
   }
   function home(){
