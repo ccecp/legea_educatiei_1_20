@@ -400,3 +400,40 @@ button.module-row { width: 100%; color: var(--ink); text-align: left; }
 .article-quiz{margin-top:28px;border:1px solid #d7dfdd;border-radius:14px;background:#f8faf9}.article-quiz>summary{padding:16px 18px;color:#173d49;font-family:system-ui,sans-serif;font-weight:900;cursor:pointer}.quiz-list{padding:0 16px 16px}.quiz-item{display:grid;gap:9px;margin:14px 0;padding:16px;border:0;border-radius:12px;background:#fff}.quiz-item legend{padding:0 0 10px;color:#173d49;font-family:system-ui,sans-serif;font-weight:800}.answer-option{display:flex;gap:9px;width:100%;padding:11px 13px;border:1px solid #d8e0de;border-radius:10px;background:#fff;color:#263a40;text-align:left;font:inherit;line-height:1.4;cursor:pointer}.answer-option span{color:#a86128;font-weight:900}.answer-option:hover:not(:disabled){border-color:#bf7a3d;background:#fffaf4}.answer-option.correct{border-color:#358052;background:#e9f6ee}.answer-option.wrong{border-color:#b94c4c;background:#fff0f0}.answer-feedback{display:none;padding:10px 12px;border-radius:9px;font-family:system-ui,sans-serif;font-weight:800}.answer-feedback.success,.answer-feedback.retry{display:block}.answer-feedback.success{background:#e9f6ee;color:#286640}.answer-feedback.retry{background:#fff0f0;color:#943737}
 .answer-feedback small{display:block;margin-top:8px;font-weight:600;line-height:1.45}
 .quiz-item legend{white-space:pre-line}
+
+
+/* Ajustare vizibilitate si aliniere antet - 06.10.2026 */
+.brand{
+  align-items:center;
+  gap:1rem;
+}
+.brand > span:last-child{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:4px;
+}
+.brand strong{
+  margin:0;
+  color:#ffffff;
+  line-height:1.15;
+}
+.brand small{
+  margin:0;
+  color:#eef6f4;
+  font-size:.78rem;
+  line-height:1.2;
+  opacity:1;
+}
+
+/* Titlul principal: doua randuri clare si perfect aliniate */
+.hero h1{
+  color:#f5fbfa;
+  line-height:1.02;
+}
+.hero h1 span{
+  display:block;
+  margin-top:.22em;
+  color:#f2a45f;
+  line-height:1.08;
+}
