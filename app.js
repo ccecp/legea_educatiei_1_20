@@ -13,7 +13,46 @@
   const norm = (v) => v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
   function nav(){ document.querySelectorAll(".nav-button").forEach(b => b.classList.toggle("active", b.dataset.view === view)); }
   function toastMsg(t){ toast.textContent=t; toast.classList.add("show"); clearTimeout(toastMsg.t); toastMsg.t=setTimeout(()=>toast.classList.remove("show"),2400); }
-  function stop(){ if("speechSynthesis" in window) speechSynthesis.cancel(); document.querySelectorAll("[data-stop]").forEach(b=>b.hidden=true); document.querySelectorAll("[data-play]").forEach(b=>b.hidden=false); }
+  let continuousAudio = false;
+  function resetAudioButtons(){ document.querySelectorAll("[data-stop]").forEach(b=>b.hidden=true); document.querySelectorAll("[data-play]").forEach(b=>b.hidden=false); }
+  function stop(){ continuousAudio=false; if("speechSynthesis" in window) speechSynthesis.cancel(); resetAudioButtons(); }
+  function revealArticle(a){
+    const target=document.querySelector(`[data-article="${a.article}"]`);
+    if(target){ target.open=true; target.scrollIntoView({behavior:"smooth",block:"start"}); return true; }
+    return false;
+  }
+  function playArticle(a){
+    if(!("speechSynthesis" in window)){ toastMsg("Redarea audio nu este disponibilă."); return; }
+    continuousAudio=true;
+    speechSynthesis.cancel();
+    resetAudioButtons();
+    revealArticle(a);
+    const playButton=document.querySelector(`[data-play="${a.article}"]`);
+    const stopButton=document.querySelector(`[data-stop="${a.article}"]`);
+    if(playButton) playButton.hidden=true;
+    if(stopButton) stopButton.hidden=false;
+    const u=new SpeechSynthesisUtterance(`Articolul ${a.article}. ${a.legalText}`);
+    u.lang="ro-RO"; u.rate=.88; u.pitch=1.04; u.voice=friendlyVoice();
+    u.onerror=()=>{ continuousAudio=false; resetAudioButtons(); };
+    u.onend=()=>{
+      resetAudioButtons();
+      if(!continuousAudio) return;
+      const idx=DATA.articles.findIndex(x=>x.article===a.article);
+      const next=DATA.articles[idx+1];
+      if(!next){ continuousAudio=false; toastMsg("Ați ajuns la finalul legii."); return; }
+      const nextModule=modFor(next.articleNumber);
+      const currentModule=modFor(a.articleNumber);
+      if(currentModule?.id!==nextModule?.id || !document.querySelector(`[data-article="${next.article}"]`)){
+        const out=document.getElementById("moduleArticles");
+        if(out) moduleView(nextModule.id,next.article);
+        else { contents(); continuousAudio=true; moduleView(nextModule.id,next.article); }
+      } else {
+        revealArticle(next);
+      }
+      setTimeout(()=>playArticle(next),120);
+    };
+    speechSynthesis.speak(u);
+  }
   function romanianVoices(){ return speechSynthesis.getVoices().filter(v=>v.lang.toLowerCase().startsWith("ro")); }
   function friendlyVoice(){ const voices=romanianVoices(),wanted=["ioana","alina","cristina","female","natural"]; return voices.find(v=>v.name===selectedVoice)||voices.find(v=>wanted.some(n=>v.name.toLowerCase().includes(n)))||voices[0]||null; }
   function voiceOptions(){ const voices=romanianVoices(); return voices.length?`<label class="voice-choice">Voce <select data-voice-select>${voices.map(v=>`<option value="${esc(v.name)}" ${v.name===(selectedVoice||friendlyVoice()?.name)?"selected":""}>${esc(v.name)}</option>`).join("")}</select></label>`:""; }
@@ -50,7 +89,7 @@
   function card(a, open=false){ const m=modFor(a.articleNumber); return `<details class="article-card" data-article="${a.article}" ${open?"open":""}><summary><span>Articolul ${esc(a.article)}</span><small>${esc(m?.title||"")}</small></summary><div class="article-body"><div class="audio-actions"><button class="primary" data-play="${a.article}">▶ Ascultă articolul</button><button class="secondary" data-stop="${a.article}" hidden>■ Oprește</button>${voiceOptions()}<button class="secondary" data-copy="${a.article}">Copiază textul</button></div><div class="legal-text">${paras(a.legalText)}</div>${quizHTML(a)}</div></details>`; }
   function bindCards(){
     document.querySelectorAll("[data-voice-select]").forEach(s=>s.onchange=()=>{selectedVoice=s.value;localStorage.setItem("lege198-voice",selectedVoice);document.querySelectorAll("[data-voice-select]").forEach(x=>x.value=selectedVoice);stop();toastMsg("Vocea a fost schimbată.");});
-    document.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{ const a=DATA.articles.find(x=>x.article===b.dataset.play); if(!("speechSynthesis" in window)){toastMsg("Redarea audio nu este disponibilă.");return;} stop(); const u=new SpeechSynthesisUtterance(`Articolul ${a.article}. ${a.legalText}`); u.lang="ro-RO";u.rate=.88;u.pitch=1.04;u.voice=friendlyVoice();u.onend=stop;u.onerror=stop;speechSynthesis.speak(u);b.hidden=true;document.querySelector(`[data-stop="${a.article}"]`).hidden=false;});
+    document.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{ const a=DATA.articles.find(x=>x.article===b.dataset.play); stop(); continuousAudio=true; playArticle(a); });
     document.querySelectorAll("[data-stop]").forEach(b=>b.onclick=stop);
     document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{const a=DATA.articles.find(x=>x.article===b.dataset.copy);await navigator.clipboard.writeText(`Articolul ${a.article}\n${a.legalText}`);toastMsg("Textul articolului a fost copiat.");});
     document.querySelectorAll(".quiz-item").forEach(item=>item.querySelectorAll("[data-answer]").forEach(button=>button.onclick=()=>{
