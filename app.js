@@ -56,56 +56,171 @@
   function romanianVoices(){ return speechSynthesis.getVoices().filter(v=>v.lang.toLowerCase().startsWith("ro")); }
   function friendlyVoice(){ const voices=romanianVoices(),wanted=["ioana","alina","cristina","female","natural"]; return voices.find(v=>v.name===selectedVoice)||voices.find(v=>wanted.some(n=>v.name.toLowerCase().includes(n)))||voices[0]||null; }
   function voiceOptions(){ const voices=romanianVoices(); return voices.length?`<label class="voice-choice">Voce <select data-voice-select>${voices.map(v=>`<option value="${esc(v.name)}" ${v.name===(selectedVoice||friendlyVoice()?.name)?"selected":""}>${esc(v.name)}</option>`).join("")}</select></label>`:""; }
-  function excerpts(a){
-    const parts=a.legalText.replace(/\s+/g," ").split(/(?<=[.;!?])\s+(?=(?:\([0-9]+\)|[a-zșț]\)|[A-ZĂÂÎȘȚ]))/).map(x=>x.replace(/^\([0-9]+\)\s*/,"").trim()).filter(x=>x.length>=45);
-    if(parts.length>=3)return parts.slice(0,3).map(x=>x.length>240?x.slice(0,237)+"...":x);
-    const text=a.legalText.replace(/\s+/g," ").trim(),size=Math.ceil(text.length/3);
-    return [0,1,2].map(i=>text.slice(i*size,(i+1)*size).trim()).filter(Boolean).map(x=>x.length>240?x.slice(0,237)+"...":x);
+  const BANK = window.LEGE_CONTROL.items;
+  let session = null, sessionTick = null;
+  const inlineChoices = new Map(), inlineShown = new Set();
+  const quizFor = a => BANK.filter(q => q.article === a.article || (a.article === '251' && q.article === 'Anexă'));
+  const timeText = seconds => {
+    const s = Math.max(0, Math.floor(seconds));
+    return [Math.floor(s/3600), Math.floor(s/60)%60, s%60].map(n=>String(n).padStart(2,'0')).join(':');
+  };
+  const questionText = q => esc(q.prompt).replaceAll('\n','<br>');
+  const answerText = q => q.options[q.answer];
+  function feedbackHTML(q,chosen){
+    const good=chosen===q.answer;
+    return `<div class="answer-feedback ${good?'success':'retry'}"><strong>${chosen===undefined?'Fără răspuns.':good?'Corect.':'Răspuns greșit.'} Răspunsul corect: ${'abcd'[q.answer]}) ${esc(answerText(q))}</strong><p>${esc(q.source)}</p><blockquote>${esc(q.quote)}</blockquote></div>`;
   }
-  function mutations(text){
-    const swaps=[["Ministerul Educației","autoritățile administrației publice locale"],["ministrului educației","directorului unității de învățământ"],["consiliului de administrație","consiliului profesoral"],["consiliul de administrație","consiliul profesoral"],["hotărâre a Guvernului","ordin al ministrului educației"],["ordin al ministrului educației","hotărâre a Guvernului"],["majoritatea","unanimitatea"],["obligatoriu","facultativ"],["gratuit","contra cost"],["poate","trebuie să"],["pot","trebuie să"],["se aprobă","se avizează"],["se avizează","se aprobă"],["județene","naționale"],["național","județean"]];
-    const result=[];for(const [from,to] of swaps)if(text.includes(from)){const v=text.replace(from,to);if(v!==text&&!result.includes(v))result.push(v);}
-    const number=text.match(/\b(\d+)\b/);if(number){const n=Number(number[1]);for(const d of [1,2,-1]){const v=text.replace(number[0],String(Math.max(1,n+d)));if(v!==text&&!result.includes(v))result.push(v);}}
-    if(/\bse\s+[a-zăâîșț]+/i.test(text))result.push(text.replace(/\bse\s+/i,"nu se "));if(/\beste\b/i.test(text))result.push(text.replace(/\beste\b/i,"nu este"));if(/\bsunt\b/i.test(text))result.push(text.replace(/\bsunt\b/i,"nu sunt"));
-    const fallbacks=[`${text} Numai cu aprobarea prealabilă a Ministerului Educației.`,`${text} Prevederea se aplică exclusiv unităților de învățământ particular.`,`${text} Aplicarea este facultativă.`];
-    for(const v of fallbacks)if(result.length<3&&!result.includes(v))result.push(v);return result.slice(0,3);
+  function quizHTML(a){
+    const questions=quizFor(a);
+    return `<details class="article-quiz"><summary>Grilă de control · ${questions.length} ${questions.length===1?'item':'itemi'}</summary><p>Alege răspunsul, apoi verifică atunci când dorești. Poți corecta toți itemii articolului la final.</p><div class="quiz-list">${questions.map(q=>{
+      const chosen=inlineChoices.get(q.id),shown=inlineShown.has(q.id);
+      return `<fieldset class="quiz-item" data-inline="${esc(q.id)}"><legend>${questionText(q)}</legend>${q.options.map((o,i)=>`<button type="button" class="answer-option ${chosen===i?'selected':''} ${shown&&i===q.answer?'correct':''} ${shown&&chosen===i&&i!==q.answer?'wrong':''}" data-inline-choice="${i}" aria-pressed="${chosen===i}" ${shown?'disabled':''}><span>${'abcd'[i]})</span> ${esc(o)}</button>`).join('')}<button type="button" class="secondary" data-inline-check="${esc(q.id)}" ${chosen===undefined||shown?'disabled':''}>Verifică răspunsul</button><div data-inline-feedback>${shown?feedbackHTML(q,chosen):''}</div></fieldset>`;
+    }).join('')}</div><div class="audio-actions"><button type="button" class="primary" data-inline-finish="${a.article}">Corectează articolul</button><button type="button" class="secondary" data-inline-reset="${a.article}">Reia itemii articolului</button><button type="button" class="secondary" data-control-open>Deschide seriile de 60 de minute</button></div></details>`;
   }
-  function sortedQuestion(prompt,options,correctText,source){const unique=[...new Set(options)].slice(0,4).sort((x,y)=>x.localeCompare(y,"ro",{sensitivity:"base"}));return{prompt,options:unique,correct:unique.indexOf(correctText),source};}
-  function quizFor(a){
-    const own=excerpts(a),first=own[0],second=own[1]||first,third=own[2]||second;
-    const falseSecond=mutations(second)[0],falseThird=mutations(third)[1]||mutations(third)[0];
-    const statements=`I. ${first}\nII. ${falseSecond}\nIII. ${third}`;
-    const comboOptions=["Afirmațiile I și II","Afirmațiile I și III","Afirmațiile II și III","Toate cele trei afirmații"];
-    const q1=sortedQuestion(`Analizați afirmațiile următoare prin raportare la art. ${a.article}:\n${statements}\nCare combinație este corectă?`,comboOptions,"Afirmațiile I și III",`I și III reproduc textul art. ${a.article}; afirmația II modifică o condiție legală.`);
-    const scenarioLead=["În cadrul unei ședințe a consiliului de administrație,","La verificarea legalității unei decizii manageriale,","În soluționarea unei situații-problemă din unitatea de învățământ,"][a.articleNumber%3];
-    const q2=sortedQuestion(`${scenarioLead} directorul invocă art. ${a.article}. Care dintre următoarele soluții respectă întocmai prevederea legală?`,[first,...mutations(first)],first,first);
-    const assertion=`AFIRMAȚIE: ${second}`;
-    const reason=`MOTIVARE: ${falseThird}`;
-    const arOptions=["Afirmația este adevărată, iar motivarea este falsă","Afirmația este falsă, iar motivarea este adevărată","Afirmația și motivarea sunt adevărate, iar motivarea explică afirmația","Afirmația și motivarea sunt adevărate, dar motivarea nu explică afirmația"];
-    const q3=sortedQuestion(`Raportându-vă la art. ${a.article}, analizați enunțurile:\n${assertion}\n${reason}`,arOptions,"Afirmația este adevărată, iar motivarea este falsă",`Afirmația reproduce prevederea legală. Motivarea schimbă un element al textului art. ${a.article}.`);
-    return [q1,q2,q3];
+  function bindInline(){
+    document.querySelectorAll('[data-inline]').forEach(item=>{
+      const q=BANK.find(x=>x.id===item.dataset.inline);
+      item.querySelectorAll('[data-inline-choice]').forEach(button=>button.onclick=()=>{
+        if(inlineShown.has(q.id))return;
+        const chosen=Number(button.dataset.inlineChoice);inlineChoices.set(q.id,chosen);
+        item.querySelectorAll('[data-inline-choice]').forEach(b=>{const yes=Number(b.dataset.inlineChoice)===chosen;b.classList.toggle('selected',yes);b.setAttribute('aria-pressed',String(yes));});
+        item.querySelector('[data-inline-check]').disabled=false;
+      });
+      item.querySelector('[data-inline-check]').onclick=()=>{
+        if(!inlineChoices.has(q.id))return;
+        inlineShown.add(q.id);showInline(item,q);
+      };
+    });
+    function showInline(item,q){
+      const chosen=inlineChoices.get(q.id);
+      item.querySelectorAll('[data-inline-choice]').forEach(b=>{const n=Number(b.dataset.inlineChoice);b.disabled=true;b.classList.toggle('correct',n===q.answer);b.classList.toggle('wrong',chosen===n&&n!==q.answer);});
+      item.querySelector('[data-inline-feedback]').innerHTML=feedbackHTML(q,chosen);
+      item.querySelector('[data-inline-check]').disabled=true;
+    }
+    document.querySelectorAll('[data-inline-finish]').forEach(button=>button.onclick=()=>{
+      const a=DATA.articles.find(x=>x.article===button.dataset.inlineFinish);
+      quizFor(a).forEach(q=>{inlineShown.add(q.id);const item=document.querySelector(`[data-inline="${q.id}"]`);if(item)showInline(item,q);});
+    });
+    document.querySelectorAll('[data-inline-reset]').forEach(button=>button.onclick=()=>{
+      const a=DATA.articles.find(x=>x.article===button.dataset.inlineReset);
+      quizFor(a).forEach(q=>{inlineChoices.delete(q.id);inlineShown.delete(q.id);});
+      const box=button.closest('.article-quiz');const holder=document.createElement('div');holder.innerHTML=quizHTML(a);holder.firstElementChild.open=true;box.replaceWith(holder.firstElementChild);bindInline();
+    });
+    document.querySelectorAll('[data-control-open]').forEach(b=>b.onclick=()=>controlView());
   }
-  function quizHTML(a){return `<details class="article-quiz"><summary>Antrenament pentru concurs: 3 itemi</summary><div class="quiz-list">${quizFor(a).map((q,qi)=>`<fieldset class="quiz-item" data-quiz="${a.article}-${qi}" data-correct="${q.correct}" data-source="${esc(q.source)}"><legend>${qi+1}. ${esc(q.prompt)}</legend>${q.options.map((o,oi)=>`<button type="button" class="answer-option" data-answer="${oi}"><span>${"abcd"[oi]})</span> ${esc(o)}</button>`).join("")}<div class="answer-feedback" aria-live="polite"></div></fieldset>`).join("")}</div></details>`;}
+  function scopeItems(scope){
+    if(scope==='all')return BANK;
+    const m=DATA.modules.find(m=>m.id===Number(scope));
+    return BANK.filter(q=>q.articleNumber>=m.startArticle&&q.articleNumber<=m.endArticle);
+  }
+  function seriesFor(scope='all',size=30){
+    const pool=scopeItems(scope),chunks=[];
+    for(let i=0;i<pool.length;i+=size)chunks.push(pool.slice(i,i+size));
+    return chunks;
+  }
+  function clearSessionTimer(){clearInterval(sessionTick);sessionTick=null;}
+  function elapsedSession(){return session?Math.min(3600000,(session.endedAt??performance.now())-session.startedAt):0;}
+  function syncSessionClock(){
+    if(!session||session.finished)return;
+    const elapsed=elapsedSession(),label=document.getElementById('controlRemaining');
+    if(label)label.textContent=timeText((3600000-elapsed)/1000);
+    if(elapsed>=3600000)finishSession(true);
+  }
+  function startSession(items,mode='final',settings={}){
+    clearSessionTimer();session={items:[...items],answers:{},shown:new Set(),index:0,mode,settings,startedAt:performance.now(),endedAt:null,finished:false,timedOut:false};
+    sessionTick=setInterval(syncSessionClock,500);renderSession();
+  }
+  function controlView(){
+    view='control';stop();nav();
+    if(session){if(session.finished)renderResults();else renderSession();return;}
+    renderSetup();
+  }
+  function renderSetup(){
+    view='control';stop();nav();
+    main.innerHTML=`<section class="page-head"><p class="eyebrow">ÎNVĂȚARE ȘI AUTOVERIFICARE</p><h1>Grilă de control</h1><p class="lead">${BANK.length} de itemi pentru articolele 1–251, articolul 108¹ și anexa cu definiții.</p><p>Câte un item pentru fiecare grup de maximum 8 puncte dintr-un articol. Alineatele și punctele enumerărilor sunt numărate în ordinea textului; notele editoriale nu intră în numărătoare.</p></section>
+    <section class="control-setup"><h2>Alege cum lucrezi</h2><div class="control-fields"><label>Domeniul<select id="controlScope"><option value="all">Toată legea și anexa</option>${DATA.modules.map(m=>`<option value="${m.id}">${m.id}. ${esc(m.title)} · ${esc(m.articles)}</option>`).join('')}</select></label><label>Dimensiunea seriei<select id="controlSize"><option value="30">30 de itemi · 60 de minute</option><option value="20">20 de itemi · 60 de minute</option><option value="all">Grila completă din domeniul ales · 60 de minute</option></select></label><label>Seria<select id="controlSeries"></select></label></div>
+    <fieldset class="control-mode"><legend>Când vrei să vezi răspunsurile corecte?</legend><label><input type="radio" name="controlMode" value="final" checked> La final</label><label><input type="radio" name="controlMode" value="immediate"> După fiecare răspuns</label></fieldset>
+    <p>Și în modul „La final” poți apăsa <strong>Verifică acest răspuns</strong> la un item asupra căruia ai dubii. Itemul verificat se blochează pentru această parcurgere.</p><p id="controlSeriesInfo"></p><button type="button" id="controlStart" class="primary">Începe seria</button><p class="source-note">Formulările corecte sunt extrase din materialul integral al platformei: ${esc(DATA.sourceVersion)}. Seriile parcurse în ordine acoperă întreaga bancă. Răspunsurile nu sunt salvate după închiderea sau reîncărcarea paginii.</p></section>`;
+    const scope=document.getElementById('controlScope'),size=document.getElementById('controlSize'),series=document.getElementById('controlSeries');
+    function update(){
+      const n=size.value==='all'?scopeItems(scope.value).length:Number(size.value),groups=seriesFor(scope.value,n||1);
+      series.innerHTML=groups.map((group,i)=>`<option value="${i}">Seria ${i+1} · ${group.length} itemi · ${group[0].article==='Anexă'?'anexa':'art. '+group[0].article} – ${group.at(-1).article==='Anexă'?'anexa':'art. '+group.at(-1).article}</option>`).join('');
+      document.getElementById('controlSeriesInfo').textContent=`${scopeItems(scope.value).length} de itemi în ${groups.length} ${groups.length===1?'serie':'serii'}. Timp maxim pentru o parcurgere: 60 de minute.`;
+    }
+    scope.onchange=update;size.onchange=update;update();
+    document.getElementById('controlStart').onclick=()=>{
+      const n=size.value==='all'?scopeItems(scope.value).length:Number(size.value),groups=seriesFor(scope.value,n||1),number=Number(series.value);
+      const mode=document.querySelector('input[name="controlMode"]:checked').value;
+      startSession(groups[number],mode,{scope:scope.value,size:n,series:number});
+    };
+  }
+  function chooseAnswer(option){
+    if(!session||session.finished)return;
+    if(elapsedSession()>=3600000){finishSession(true);return;}
+    const q=session.items[session.index];if(session.shown.has(q.id))return;
+    session.answers[q.id]=option;
+    if(session.mode==='immediate')session.shown.add(q.id);
+    renderSession();
+  }
+  function revealCurrent(){
+    const q=session.items[session.index];if(session.answers[q.id]===undefined)return;
+    session.shown.add(q.id);renderSession();
+  }
+  function renderSession(){
+    view='control';nav();
+    if(session.finished){renderResults();return;}
+    if(elapsedSession()>=3600000){finishSession(true);return;}
+    const q=session.items[session.index],chosen=session.answers[q.id],shown=session.shown.has(q.id),answered=Object.keys(session.answers).length;
+    main.innerHTML=`<section class="control-top"><div><strong>Grilă de control · ${session.index+1}/${session.items.length}</strong><span>${answered} răspunsuri completate · ${session.mode==='immediate'?'verificare imediată':'corectare la final'}</span></div><div class="control-clock">Timp rămas <strong id="controlRemaining">${timeText((3600000-elapsedSession())/1000)}</strong></div></section>
+    <section class="control-question"><p class="eyebrow">${esc(q.source)} · grupa ${q.block}</p><h1 class="control-prompt">${questionText(q)}</h1><div role="group" aria-label="Variante de răspuns">${q.options.map((o,i)=>`<button type="button" class="answer-option ${i===chosen?'selected':''} ${shown&&i===q.answer?'correct':''} ${shown&&chosen===i&&i!==q.answer?'wrong':''}" data-control-answer="${i}" aria-pressed="${chosen===i}" ${shown?'disabled':''}><span>${'abcd'[i]})</span> ${esc(o)}</button>`).join('')}</div>
+    <div aria-live="polite">${shown?feedbackHTML(q,chosen):chosen===undefined?'<p>Alege o variantă. Poți reveni asupra ei înainte de verificare.</p>':'<p>Răspuns înregistrat pentru această parcurgere.</p>'}</div>
+    <div class="control-actions"><button type="button" class="secondary" id="controlPrev" ${session.index===0?'disabled':''}>← Înapoi</button><button type="button" class="secondary" id="controlReveal" ${chosen===undefined||shown?'disabled':''}>Verifică acest răspuns</button><button type="button" class="primary" id="controlNext" ${session.index===session.items.length-1?'disabled':''}>Următorul →</button></div>
+    <details class="control-map"><summary>Grila răspunsurilor · ${answered}/${session.items.length}</summary><div>${session.items.map((x,i)=>`<button type="button" data-control-jump="${i}" class="${i===session.index?'current':''} ${session.answers[x.id]!==undefined?'filled':''}" aria-label="Itemul ${i+1}${session.answers[x.id]===undefined?', fără răspuns':', completat'}">${i+1}</button>`).join('')}</div></details><button type="button" class="control-finish" id="controlFinish">Finalizează și vezi rezultatul${answered<session.items.length?` · ${session.items.length-answered} fără răspuns`:''}</button></section>`;
+    document.querySelectorAll('[data-control-answer]').forEach(b=>b.onclick=()=>chooseAnswer(Number(b.dataset.controlAnswer)));
+    document.getElementById('controlPrev').onclick=()=>{if(session.index>0){session.index--;renderSession();}};
+    document.getElementById('controlNext').onclick=()=>{if(session.index<session.items.length-1){session.index++;renderSession();}};
+    document.getElementById('controlReveal').onclick=revealCurrent;
+    document.getElementById('controlFinish').onclick=()=>finishSession(false);
+    document.querySelectorAll('[data-control-jump]').forEach(b=>b.onclick=()=>{session.index=Number(b.dataset.controlJump);renderSession();});
+  }
+  function finishSession(timedOut=false){
+    if(!session||session.finished)return;
+    session.endedAt=timedOut?session.startedAt+3600000:performance.now();session.finished=true;session.timedOut=timedOut;clearSessionTimer();
+    if(view==='control')renderResults();
+  }
+  function sessionStats(){
+    const total=session.items.length,correct=session.items.filter(q=>session.answers[q.id]===q.answer).length,answered=Object.keys(session.answers).length;
+    return {total,correct,wrong:answered-correct,unanswered:total-answered};
+  }
+  function renderResults(){
+    view='control';nav();const stats=sessionStats(),wrongItems=session.items.filter(q=>session.answers[q.id]!==q.answer),settings=session.settings;
+    const groups=settings.scope?seriesFor(settings.scope,settings.size):[],hasNext=groups.length>settings.series+1;
+    main.innerHTML=`<section class="page-head"><p class="eyebrow">REZULTATUL PARCURGERII</p><h1>${stats.correct} din ${stats.total} răspunsuri corecte</h1><p>${stats.wrong} greșite · ${stats.unanswered} fără răspuns · ${Math.round(stats.correct/stats.total*100)}% corecte</p><p><strong>Timp total: ${timeText(elapsedSession()/1000)}</strong>${session.timedOut?' · Cele 60 de minute s-au încheiat.':''}</p><div class="control-actions"><button type="button" class="primary" id="controlRetryWrong" ${wrongItems.length?'':'disabled'}>Reia greșelile și itemii necompletați (${wrongItems.length})</button><button type="button" class="secondary" id="controlRetryAll">Reia aceeași serie</button>${hasNext?'<button type="button" class="primary" id="controlNextSeries">Seria următoare →</button>':''}<button type="button" class="secondary" id="controlNew">Alege altă serie</button></div></section>
+    <section class="control-review"><h2>Răspunsurile și pasajele din material</h2><label class="control-review-filter"><input type="checkbox" id="controlOnlyWrong"> Arată numai greșelile și itemii fără răspuns</label>${session.items.map((q,i)=>{
+      const chosen=session.answers[q.id],good=chosen===q.answer;
+      return `<details class="control-result ${good?'result-good':'result-wrong'}" data-result-good="${good}"><summary>${i+1}. ${esc(q.source)} · ${chosen===undefined?'Fără răspuns':good?'Corect':'Greșit'}</summary><div><p>${questionText(q)}</p><p>Răspunsul tău: <strong>${chosen===undefined?'necompletat':esc('abcd'[chosen]+') '+q.options[chosen])}</strong></p>${feedbackHTML(q,chosen)}<button type="button" class="secondary" data-result-article="${q.article==='Anexă'?'251':q.article}">Deschide articolul integral</button></div></details>`;
+    }).join('')}</section>`;
+    document.getElementById('controlRetryWrong').onclick=()=>startSession(wrongItems,session.mode,{});
+    document.getElementById('controlRetryAll').onclick=()=>startSession(session.items,session.mode,session.settings);
+    if(hasNext)document.getElementById('controlNextSeries').onclick=()=>startSession(groups[settings.series+1],session.mode,{...settings,series:settings.series+1});
+    document.getElementById('controlNew').onclick=()=>{clearSessionTimer();session=null;renderSetup();};
+    document.getElementById('controlOnlyWrong').onchange=e=>document.querySelectorAll('[data-result-good]').forEach(d=>d.hidden=e.target.checked&&d.dataset.resultGood==='true');
+    document.querySelectorAll('[data-result-article]').forEach(b=>b.onclick=()=>openArticle(b.dataset.resultArticle));
+  }
+  // Expose a small read-only testing surface; answers remain in memory only.
+  window.LEGE_CONTROL_APP={controlView,seriesFor,startSession,chooseAnswer,revealCurrent,finishSession,sessionStats,getSession:()=>session,inlineChoices,inlineShown,quizFor};
+
   function card(a, open=false){ const m=modFor(a.articleNumber); return `<details class="article-card" data-article="${a.article}" ${open?"open":""}><summary><span>Articolul ${esc(a.article)}</span><small>${esc(m?.title||"")}</small></summary><div class="article-body"><div class="audio-actions"><button class="primary" data-play="${a.article}">▶ Ascultă articolul</button><button class="secondary" data-stop="${a.article}" hidden>■ Oprește</button>${voiceOptions()}<button class="secondary" data-copy="${a.article}">Copiază textul</button></div><div class="legal-text">${paras(a.legalText)}</div>${quizHTML(a)}</div></details>`; }
   function bindCards(){
     document.querySelectorAll("[data-voice-select]").forEach(s=>s.onchange=()=>{selectedVoice=s.value;localStorage.setItem("lege198-voice",selectedVoice);document.querySelectorAll("[data-voice-select]").forEach(x=>x.value=selectedVoice);stop();toastMsg("Vocea a fost schimbată.");});
     document.querySelectorAll("[data-play]").forEach(b=>b.onclick=()=>{ const a=DATA.articles.find(x=>x.article===b.dataset.play); stop(); continuousAudio=true; playArticle(a); });
     document.querySelectorAll("[data-stop]").forEach(b=>b.onclick=stop);
     document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{const a=DATA.articles.find(x=>x.article===b.dataset.copy);await navigator.clipboard.writeText(`Articolul ${a.article}\n${a.legalText}`);toastMsg("Textul articolului a fost copiat.");});
-    document.querySelectorAll(".quiz-item").forEach(item=>item.querySelectorAll("[data-answer]").forEach(button=>button.onclick=()=>{
-      if(item.dataset.done)return;
-      item.dataset.done="1";
-      const chosen=Number(button.dataset.answer),correct=Number(item.dataset.correct),buttons=[...item.querySelectorAll("[data-answer]")];
-      buttons.forEach((b,i)=>{b.disabled=true;if(i===correct)b.classList.add("correct");});
-      if(chosen!==correct)button.classList.add("wrong");
-      const feedback=item.querySelector(".answer-feedback"),letter="abcd"[correct];
-      feedback.className=`answer-feedback ${chosen===correct?"success":"retry"}`;
-      feedback.innerHTML=(chosen===correct?`Corect! Răspunsul este <strong>${letter})</strong>.`:`Nu este corect. Răspunsul corect este <strong>${letter})</strong>.`)+`<small>Formularea din lege: ${esc(item.dataset.source)}</small>`;
-    }));
+    bindInline();
   }
   function home(){
-    view="home";stop();main.innerHTML=`<section class="hero"><p class="eyebrow">FORMA DIN DOCUMENTUL FURNIZAT</p><h1>Legea nr. 198/2023<br><span>a învățământului preuniversitar</span></h1><p class="lead">Text integral extras din documentul consolidat, cu articolele 1-251 și articolul 108¹. Căutați orice termen, număr de articol sau expresie.</p><div class="search-wrap"><label for="lawSearch">Căutare în lege</label><div class="search-row"><input id="lawSearch" type="search" placeholder="Ex.: director, norma didactică, art. 207"><button id="searchButton" class="primary">Caută</button></div></div><p class="source-note">${esc(DATA.documentNotice)}</p></section><section class="quick-grid"><button class="quick-card" data-go="contents"><strong>20 de module</strong><span>Deschide cuprinsul complet</span></button><button class="quick-card" data-open="1"><strong>Articolul 1</strong><span>Începe lectura legii</span></button><button class="quick-card" data-open="207"><strong>Articolul 207</strong><span>Norma didactică</span></button></section><section id="results" class="results" aria-live="polite"></section>`;
-    document.getElementById("searchButton").onclick=search;document.getElementById("lawSearch").onkeydown=e=>{if(e.key==="Enter")search();};document.querySelector("[data-go]").onclick=contents;document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openArticle(b.dataset.open));nav();
+    view="home";stop();main.innerHTML=`<section class="hero"><p class="eyebrow">FORMA DIN DOCUMENTUL FURNIZAT</p><h1>Legea nr. 198/2023<br><span>a învățământului preuniversitar</span></h1><p class="lead">Text integral extras din documentul consolidat, cu articolele 1-251 și articolul 108¹. Căutați orice termen, număr de articol sau expresie.</p><div class="search-wrap"><label for="lawSearch">Căutare în lege</label><div class="search-row"><input id="lawSearch" type="search" placeholder="Ex.: director, norma didactică, art. 207"><button id="searchButton" class="primary">Caută</button></div></div><p class="source-note">${esc(DATA.documentNotice)}</p></section><section class="quick-grid"><button class="quick-card" data-control-open><strong>Grilă de control</strong><span>Toate articolele · serii de 60 de minute</span></button><button class="quick-card" data-go="contents"><strong>20 de module</strong><span>Deschide cuprinsul complet</span></button><button class="quick-card" data-open="1"><strong>Articolul 1</strong><span>Începe lectura legii</span></button><button class="quick-card" data-open="207"><strong>Articolul 207</strong><span>Norma didactică</span></button></section><section id="results" class="results" aria-live="polite"></section>`;
+    document.getElementById("searchButton").onclick=search;document.getElementById("lawSearch").onkeydown=e=>{if(e.key==="Enter")search();};document.querySelector("[data-go]").onclick=contents;document.querySelectorAll("[data-control-open]").forEach(b=>b.onclick=controlView);document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openArticle(b.dataset.open));nav();
   }
   function search(){
     const input=document.getElementById("lawSearch"),term=input.value.trim(),out=document.getElementById("results");if(term.length<2){out.innerHTML='<p class="empty">Introduceți cel puțin două caractere.</p>';return;}
@@ -116,5 +231,6 @@
     view="contents";stop();main.innerHTML=`<section class="page-head"><p class="eyebrow">CUPRINS</p><h1>Structura legii</h1><p>Selectați un modul pentru a vedea articolele.</p></section><section class="module-grid">${DATA.modules.map(m=>`<button class="module-card" data-module="${m.id}"><span class="module-number">${String(m.id).padStart(2,"0")}</span><strong>${esc(m.title)}</strong><small>${esc(m.articles)}</small></button>`).join("")}</section><section id="moduleArticles" class="module-articles"></section>`;document.querySelectorAll("[data-module]").forEach(b=>b.onclick=()=>moduleView(Number(b.dataset.module)));nav();}
   function moduleView(id,target=null){const m=DATA.modules.find(x=>x.id===id),arr=DATA.articles.filter(a=>a.articleNumber>=m.startArticle&&a.articleNumber<=m.endArticle),out=document.getElementById("moduleArticles");out.innerHTML=`<div class="module-heading"><p>MODULUL ${id}</p><h2>${esc(m.title)}</h2><span>${esc(m.articles)}</span></div>${arr.map(a=>card(a,a.article===String(target))).join("")}`;bindCards();(target?document.querySelector(`[data-article="${target}"]`):out).scrollIntoView({behavior:"smooth",block:"start"});}
   function openArticle(n){const a=DATA.articles.find(x=>x.article===String(n))||DATA.articles.find(x=>x.articleNumber===Number(n));if(!a)return;contents();moduleView(modFor(a.articleNumber).id,a.article);}
-  document.querySelectorAll(".nav-button").forEach(b=>b.onclick=()=>b.dataset.view==="contents"?contents():home());document.getElementById("homeButton").onclick=home;window.addEventListener("beforeunload",stop);home();
+  document.querySelectorAll(".nav-button").forEach(b=>b.onclick=()=>b.dataset.view==="contents"?contents():b.dataset.view==="control"?controlView():home());document.getElementById("homeButton").onclick=home;window.addEventListener("beforeunload",stop);home();
 })();
+
