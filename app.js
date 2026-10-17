@@ -128,12 +128,12 @@
   }
   function startSession(items,mode='final',settings={}){
     clearSessionTimer();session={items:[...items],answers:{},shown:new Set(),index:0,mode,settings,startedAt:performance.now(),endedAt:null,finished:false,timedOut:false};
-    sessionTick=setInterval(syncSessionClock,500);renderSession();
+    sessionTick=setInterval(syncSessionClock,500);renderSession();window.scrollTo?.({top:0});
   }
   function controlView(){
     view='control';stop();nav();
     if(session){if(session.finished)renderResults();else renderSession();return;}
-    renderSetup();
+    renderSetup();window.scrollTo?.({top:0});
   }
   function renderSetup(){
     view='control';stop();nav();
@@ -171,17 +171,17 @@
     if(session.finished){renderResults();return;}
     if(elapsedSession()>=3600000){finishSession(true);return;}
     const q=session.items[session.index],chosen=session.answers[q.id],shown=session.shown.has(q.id),answered=Object.keys(session.answers).length;
-    main.innerHTML=`<section class="control-top"><div><strong>Grilă de control · ${session.index+1}/${session.items.length}</strong><span>${answered} răspunsuri completate · ${session.mode==='immediate'?'verificare imediată':'corectare la final'}</span></div><div class="control-clock">Timp rămas <strong id="controlRemaining">${timeText((3600000-elapsedSession())/1000)}</strong></div></section>
+    main.innerHTML=`<section class="control-top"><div><strong>Grilă de control · ${session.index+1}/${session.items.length}</strong><span>${answered} ${answered===1?'răspuns completat':'răspunsuri completate'} · ${session.mode==='immediate'?'verificare imediată':'corectare la final'}</span></div><div class="control-clock">Timp rămas <strong id="controlRemaining">${timeText((3600000-elapsedSession())/1000)}</strong></div></section>
     <section class="control-question"><p class="eyebrow">${esc(q.source)} · grupa ${q.block}</p><h1 class="control-prompt">${questionText(q)}</h1><div role="group" aria-label="Variante de răspuns">${q.options.map((o,i)=>`<button type="button" class="answer-option ${i===chosen?'selected':''} ${shown&&i===q.answer?'correct':''} ${shown&&chosen===i&&i!==q.answer?'wrong':''}" data-control-answer="${i}" aria-pressed="${chosen===i}" ${shown?'disabled':''}><span>${'abcd'[i]})</span> ${esc(o)}</button>`).join('')}</div>
     <div aria-live="polite">${shown?feedbackHTML(q,chosen):chosen===undefined?'<p>Alege o variantă. Poți reveni asupra ei înainte de verificare.</p>':'<p>Răspuns înregistrat pentru această parcurgere.</p>'}</div>
     <div class="control-actions"><button type="button" class="secondary" id="controlPrev" ${session.index===0?'disabled':''}>← Înapoi</button><button type="button" class="secondary" id="controlReveal" ${chosen===undefined||shown?'disabled':''}>Verifică acest răspuns</button><button type="button" class="primary" id="controlNext" ${session.index===session.items.length-1?'disabled':''}>Următorul →</button></div>
     <details class="control-map"><summary>Grila răspunsurilor · ${answered}/${session.items.length}</summary><div>${session.items.map((x,i)=>`<button type="button" data-control-jump="${i}" class="${i===session.index?'current':''} ${session.answers[x.id]!==undefined?'filled':''}" aria-label="Itemul ${i+1}${session.answers[x.id]===undefined?', fără răspuns':', completat'}">${i+1}</button>`).join('')}</div></details><button type="button" class="control-finish" id="controlFinish">Finalizează și vezi rezultatul${answered<session.items.length?` · ${session.items.length-answered} fără răspuns`:''}</button></section>`;
     document.querySelectorAll('[data-control-answer]').forEach(b=>b.onclick=()=>chooseAnswer(Number(b.dataset.controlAnswer)));
-    document.getElementById('controlPrev').onclick=()=>{if(session.index>0){session.index--;renderSession();}};
-    document.getElementById('controlNext').onclick=()=>{if(session.index<session.items.length-1){session.index++;renderSession();}};
+    document.getElementById('controlPrev').onclick=()=>{if(session.index>0){session.index--;renderSession();window.scrollTo?.({top:0});}};
+    document.getElementById('controlNext').onclick=()=>{if(session.index<session.items.length-1){session.index++;renderSession();window.scrollTo?.({top:0});}};
     document.getElementById('controlReveal').onclick=revealCurrent;
     document.getElementById('controlFinish').onclick=()=>finishSession(false);
-    document.querySelectorAll('[data-control-jump]').forEach(b=>b.onclick=()=>{session.index=Number(b.dataset.controlJump);renderSession();});
+    document.querySelectorAll('[data-control-jump]').forEach(b=>b.onclick=()=>{session.index=Number(b.dataset.controlJump);renderSession();window.scrollTo?.({top:0});});
   }
   function finishSession(timedOut=false){
     if(!session||session.finished)return;
@@ -193,7 +193,7 @@
     return {total,correct,wrong:answered-correct,unanswered:total-answered};
   }
   function renderResults(){
-    view='control';nav();const stats=sessionStats(),wrongItems=session.items.filter(q=>session.answers[q.id]!==q.answer),settings=session.settings;
+    view='control';nav();window.scrollTo?.({top:0});const stats=sessionStats(),wrongItems=session.items.filter(q=>session.answers[q.id]!==q.answer),settings=session.settings;
     const groups=settings.scope?seriesFor(settings.scope,settings.size):[],hasNext=groups.length>settings.series+1;
     main.innerHTML=`<section class="page-head"><p class="eyebrow">REZULTATUL PARCURGERII</p><h1>${stats.correct} din ${stats.total} răspunsuri corecte</h1><p>${stats.wrong} greșite · ${stats.unanswered} fără răspuns · ${Math.round(stats.correct/stats.total*100)}% corecte</p><p><strong>Timp total: ${timeText(elapsedSession()/1000)}</strong>${session.timedOut?' · Cele 60 de minute s-au încheiat.':''}</p><div class="control-actions"><button type="button" class="primary" id="controlRetryWrong" ${wrongItems.length?'':'disabled'}>Reia greșelile și itemii necompletați (${wrongItems.length})</button><button type="button" class="secondary" id="controlRetryAll">Reia aceeași serie</button>${hasNext?'<button type="button" class="primary" id="controlNextSeries">Seria următoare →</button>':''}<button type="button" class="secondary" id="controlNew">Alege altă serie</button></div></section>
     <section class="control-review"><h2>Răspunsurile și pasajele din material</h2><label class="control-review-filter"><input type="checkbox" id="controlOnlyWrong"> Arată numai greșelile și itemii fără răspuns</label>${session.items.map((q,i)=>{
